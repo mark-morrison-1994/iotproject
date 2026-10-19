@@ -5,7 +5,6 @@ rgb_lcd lcd;
 const int LIGHT_SENSOR = A0;
 const int SOUND_SENSOR = A1;
 const int TEMP_SENSOR = A2;
-// Initial thresholds; calibrate using your sensor readings
 int lightThreshold = 300;
 int soundThreshold = 250;
 float temperatureThreshold = 28.0;
@@ -19,7 +18,6 @@ lcd.setCursor(0, 1);
 lcd.print("Starting...");
 delay(2000);
 lcd.clear();
-Serial.println("Sensory Room Environment Monitor");
 }
 void loop() {
 int lightValue = analogRead(LIGHT_SENSOR);
@@ -54,9 +52,11 @@ Serial.print(" C");
 }
 Serial.print(" | Status: ");
 Serial.println(alert ? "CHECK ENVIRONMENT" : "ROOM LOOKS OK");
-// LCD status messages
+// LCD display and backlight
 lcd.clear();
 if (alert) {
+// Orange means a condition needs checking
+lcd.setRGB(255, 60, 0);
 lcd.setCursor(0, 0);
 lcd.print("Check environment");
 lcd.setCursor(0, 1);
@@ -70,6 +70,8 @@ lcd.print("Noise is high");
 lcd.print("Room too hot");
 }
 } else {
+// Green means readings are within the thresholds
+lcd.setRGB(0, 255, 0);
 lcd.setCursor(0, 0);
 lcd.print("Room looks OK");
 lcd.setCursor(0, 1);
