@@ -18,13 +18,13 @@ lcd.setCursor(0, 1);
 lcd.print("Starting...");
 delay(2000);
 lcd.clear();
+Serial.println("Sensory Room Environment Monitor");
 }
 void loop() {
 int lightValue = analogRead(LIGHT_SENSOR);
 int soundValue = analogRead(SOUND_SENSOR);
 int tempReading = analogRead(TEMP_SENSOR);
 float temperature = -999;
-// Convert thermistor reading to Celsius
 if (tempReading > 0 && tempReading < 1023) {
 float resistance =
 10000.0 * (1023.0 / tempReading - 1.0);
@@ -37,8 +37,10 @@ bool tooDark = lightValue < lightThreshold;
 bool tooNoisy = soundValue > soundThreshold;
 bool tooHot = !tempError &&
 temperature > temperatureThreshold;
+if (tooNoisy) {
+Serial.println("Alert: High sound reading detected");
+}
 bool alert = tempError || tooDark || tooNoisy || tooHot;
-// Serial Monitor readings
 Serial.print("Light: ");
 Serial.print(lightValue);
 Serial.print(" | Sound: ");
@@ -52,10 +54,8 @@ Serial.print(" C");
 }
 Serial.print(" | Status: ");
 Serial.println(alert ? "CHECK ENVIRONMENT" : "ROOM LOOKS OK");
-// LCD display and backlight
 lcd.clear();
 if (alert) {
-// Orange means a condition needs checking
 lcd.setRGB(255, 60, 0);
 lcd.setCursor(0, 0);
 lcd.print("Check environment");
@@ -70,7 +70,6 @@ lcd.print("Noise is high");
 lcd.print("Room too hot");
 }
 } else {
-// Green means readings are within the thresholds
 lcd.setRGB(0, 255, 0);
 lcd.setCursor(0, 0);
 lcd.print("Room looks OK");
