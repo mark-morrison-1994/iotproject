@@ -1,0 +1,174 @@
+#include <Wire.h>
+#include "rgb_lcd.h"
+#include <math.h>
+rgb_lcd lcd;
+// Sensor connections
+const int LIGHT_SENSOR = A0;
+const int SOUND_SENSOR = A1;
+const int TEMP_SENSOR = A2;
+// Environmental thresholds
+int lightThreshold = 300;
+int soundThreshold = 250;
+float temperatureThreshold = 28.0;
+// Previous LCD display values
+String previousLine1 = "";
+String previousLine2 = "";
+bool previousAlert = false;
+bool firstDisplay = true;
+// Read and average sensor values
+int readAverage(int pin) {
+long total = 0;
+for (int i = 0; i < 5; i++) {
+total += analogRead(pin);
+delay(10);
+}
+return total / 5;
+}
+// Safely calculate temperature
+bool readTemperature(float &temperature) {
+int tempReading = readAverage(TEMP_SENSOR);
+// Check for invalid sensor readings
+if (tempReading <= 0 || tempReading >= 1023) {
+return false;
+}
+float resistance =
+10000.0 * (1023.0 / tempReading - 1.0);
+// Check for invalid resistance
+if (resistance <= 0 || isnan(resistance) ||
+isinf(resistance)) {
+return false;
+}
+temperature = 1.0 /
+(log(resistance / 10000.0) / 3975.0
+1.0 / 298.15) - 273.15;
+// Check calculated temperature
+if (isnan(temperature) || isinf(temperature)) {
+return false;
+}
+return true;
+}
+// Update LCD only when necessary
+void updateLCD(String line1, String line2, bool alert) {
+if (firstDisplay || alert != previousAlert) {
+if (alert) {
+lcd.setRGB(255, 60, 0);
+} else {
+lcd.setRGB(0, 255, 0);
+}
+}
+if (firstDisplay || line1 != previousLine1 ||
+line2 != previousLine2) {
+lcd.clear();
+lcd.setCursor(0, 0);
+lcd.print(line1);
+lcd.setCursor(0, 1);
+lcd.print(line2);
+previousLine1 = line1;
+previousLine2 = line2;
+}
+previousAlert = alert;
+firstDisplay = false;
+}
+// Display configured thresholds
+void printThresholds() {
+Serial.println("CONFIGURED THRESHOLDS");
+Serial.print("Light minimum: ");
+Serial.println(lightThreshold);
+Serial.print("Sound maximum: ");
+Serial.println(soundThreshold);
+Serial.print("Temperature maximum: ");
+Serial.print(temperatureThreshold);
+Serial.println(" C");
+}
+void setup() {
+Serial.begin(9600);
+lcd.begin(16, 2);
+lcd.setRGB(0, 255, 0);
+lcd.setCursor(0, 0);
+lcd.print("Room Monitor");
+lcd.setCursor(0, 1);
+lcd.print("Starting...");
+delay(2000);
+lcd.clear();
+Serial.println("Sensory Room Environment Monitor");
+Serial.println("--------------------------------");
+printThresholds();
+}
+void loop() {
+// Read light and sound sensors
+int lightValue = readAverage(LIGHT_SENSOR);
+int soundValue = readAverage(SOUND_SENSOR);
+// Read temperature safely
+float temperature = 0.0;
+bool tempValid = readTemperature(temperature);
+// Check environmental conditions
+bool tooDark = lightValue < lightThreshold;
+bool tooNoisy = soundValue > soundThreshold;
+bool tooHot = false;
+if (tempValid) {
+tooHot = temperature > temperatureThreshold;
+}
+// Determine overall alert status
+bool alert =
+!tempValid || tooDark || tooNoisy || tooHot;
+// Print readings
+Serial.println();
+Serial.println("ENVIRONMENT READINGS");
+Serial.println("--------------------------------");
+Serial.print("Light Level: ");
+Serial.println(lightValue);
+Serial.print("Sound Level: ");
+Serial.println(soundValue);
+Serial.print("Temperature: ");
+if (tempValid) {
+Serial.print(temperature, 1);
+Serial.println(" C");
+} else {
+Serial.println("Sensor Error");
+}
+// Report all active alerts
+Serial.println();
+Serial.println("ENVIRONMENT ALERTS:");
+bool alertFound = false;
+if (!tempValid) {
+Serial.println("- Temperature sensor error");
+alertFound = true;
+}
+if (tooDark) {
+Serial.println("- Low light detected");
+alertFound = true;
+}
+if (tooNoisy) {
+Serial.println("- High sound reading detected");
+alertFound = true;
+}
+if (tooHot) {
+Serial.println("- High temperature detected");
+alertFound = true;
+}
+if (!alertFound) {
+Serial.println("No alerts. Room looks OK.");
+}
+// Prepare LCD messages
+String line1;
+String line2;
+if (alert) {
+line1 = "Check environment";
+if (!tempValid) {
+line2 = "Check temp sensor";
+} else if (tooDark) {
+line2 = "Room too dark";
+} else if (tooNoisy) {
+line2 = "Noise is high";
+} else if (tooHot) {
+line2 = "Room too hot";
+}
+} else {
+line1 = "Room looks OK";
+line2 = "Temp: " + String(temperature, 1) + " C";
+}
+// Update LCD
+updateLCD(line1, line2, alert);
+Serial.println("--------------------------------");
+delay(1000);
+} 
