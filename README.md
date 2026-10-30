@@ -1,5 +1,3 @@
-# iotproject
-Austism-Friendly room environment sensor 
 
 #include <Wire.h>
 #include "rgb_lcd.h"
@@ -59,8 +57,10 @@ void loop() {
 
   bool alert = tempError || tooDark || tooNoisy || tooHot;
 
+  // Display sensor readings
   Serial.println();
   Serial.println("ENVIRONMENT READINGS");
+  Serial.println("--------------------------------");
 
   Serial.print("Light Level: ");
   Serial.println(lightValue);
@@ -77,20 +77,37 @@ void loop() {
     Serial.println(" C");
   }
 
-  Serial.print("Room Status: ");
+  // Report every active alert
+  Serial.println();
+  Serial.println("ENVIRONMENT ALERTS:");
+
+  bool alertFound = false;
 
   if (tempError) {
-    Serial.println("CHECK TEMPERATURE SENSOR");
-  } else if (tooDark) {
-    Serial.println("LOW LIGHT DETECTED");
-  } else if (tooNoisy) {
-    Serial.println("HIGH SOUND DETECTED");
-  } else if (tooHot) {
-    Serial.println("HIGH TEMPERATURE DETECTED");
-  } else {
-    Serial.println("ROOM LOOKS OK");
+    Serial.println("- Temperature sensor error");
+    alertFound = true;
   }
 
+  if (tooDark) {
+    Serial.println("- Low light detected");
+    alertFound = true;
+  }
+
+  if (tooNoisy) {
+    Serial.println("- High sound reading detected");
+    alertFound = true;
+  }
+
+  if (tooHot) {
+    Serial.println("- High temperature detected");
+    alertFound = true;
+  }
+
+  if (!alertFound) {
+    Serial.println("No alerts. Room looks OK.");
+  }
+
+  // Update LCD display
   lcd.clear();
 
   if (alert) {
@@ -120,6 +137,8 @@ void loop() {
     lcd.print((char)223);
     lcd.print("C");
   }
+
+  Serial.println("--------------------------------");
 
   delay(1000);
 }
