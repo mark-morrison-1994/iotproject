@@ -1,46 +1,263 @@
-
 #include <Wire.h>
 #include "rgb_lcd.h"
 #include <math.h>
 
-rgb_lcd lcd;
+// --------------------------------------------------
+// Sensory Room Environment Reader
+// Monitors light, sound and temperature.
+// Displays the room status on the Grove LCD.
+// --------------------------------------------------
 
-const int LIGHT_SENSOR = A0;
-const int SOUND_SENSOR = A1;
-const int TEMP_SENSOR = A2;
+// Sensor connections
+const int lightSensorPin = A0;
+const int soundSensorPin = A1;
+const int temperatureSensorPin = A2;
 
+// Temperature sensor settings
+// These values assume a common Grove 10K thermistor.
+const float nominalResistance = 10000.0;
+const float nominalTemperature = 25.0;
+const float betaValue = 3975.0;
+
+// Environmental alert thresholds
+// These are example values and should be calibrated.
 int lightThreshold = 300;
 int soundThreshold = 250;
 float temperatureThreshold = 28.0;
 
+// Reading settings
+const int numberOfSamples = 5;
+const int sampleDelay = 10;
+const int monitoringDelay = 1000;
+
+// LCD
+rgb_lcd lcd;
+
+// Store the previous LCD message to avoid
+// unnecessary display updates.
 String previousLine1 = "";
 String previousLine2 = "";
-bool previousAlert = false;
-bool firstDisplay = true;
 
-int readAverage(int pin) {
-  long total = 0;
+// --------------------------------------------------
+// Setup
+// --------------------------------------------------
 
-  for (int i = 0; i < 5; i++) {
-    total += analogRead(pin);
-    delay(10);
-  }
+void setup() {
+  Serial.begin(9600);
 
-  return total / 5;
+  lcd.begin(16, 2);
+  lcd.setRGB(0, 255, 0);
+
+  lcd.print("Sensory Room");
+  lcd.setCursor(0, 1);
+  lcd.print("Starting...");
+
+  Serial.println("Sensory Room Environment Reader");
+  Serial.println("--------------------------------");
+
+  printThresholds();
+
+  delay(2000);
+  lcd.clear();
 }
 
-void updateLCD(String line1, String line2, bool alert) {
-  if (firstDisplay || alert != previousAlert) {
-    if (alert) {
-      lcd.setRGB(255, 60, 0);
+// --------------------------------------------------
+// Main monitoring loop
+// --------------------------------------------------
+
+void loop() {
+  int lightReading = readAverage(lightSensorPin);
+  int soundReading = readAverage(soundSensorPin);
+
+  float temperature = 0.0;
+  bool temperatureValid = readTemperature(temperature);
+
+  bool lightAlert = lightReading > lightThreshold;
+  bool soundAlert = soundReading > soundThreshold;
+  bool temperatureAlert =
+    temperatureValid && temperature > temperatureThreshold;
+
+  displaySensorReadings(
+    lightReading,
+    soundReading,
+    temperature,
+    temperatureValid
+  );
+
+  displayEnvironmentalStatus(
+    lightAlert,
+    soundAlert,
+    temperatureAlert,
+    temperatureValid
+  );
+
+  updateLCD(
+    lightAlert,
+    soundAlert,
+    temperatureAlert,
+    temperatureValid
+  );
+
+  delay(monitoringDelay);
+}
+
+// --------------------------------------------------
+// Read and average sensor values
+// --------------------------------------------------
+
+int readAverage(int sensorPin) {
+  long total = 0;
+
+  for (int i = 0; i < numberOfSamples; i++) {
+    total += analogRead(sensorPin);
+    delay(sampleDelay);
+  }
+
+  return total / numberOfSamples;
+}
+
+// --------------------------------------------------
+// Read and calculate temperature
+// --------------------------------------------------
+
+bool readTemperature(float &temperature) {
+  int rawReading = readAverage(temperatureSensorPin);
+
+  // Reject readings at the limits of the analogue range.
+  if (rawReading <= 0 || rawReading >= 1023) {
+    return false;
+  }
+
+  float resistance =
+    (1023.0 - rawReading) * nominalResistance / rawReading;
+
+  if (resistance <= 0 || isnan(resistance) || isinf(resistance)) {
+    return false;
+  }
+
+  float steinhart =
+    log(resistance / nominalResistance) / betaValue;
+
+  steinhart += 1.0 / (nominalTemperature + 273.15);
+  steinhart = 1.0 / steinhart;
+
+  temperature = steinhart - 273.15;
+
+  if (isnan(temperature) || isinf(temperature)) {
+    return false;
+  }
+
+  return true;
+}
+
+// --------------------------------------------------
+// Print sensor readings to the Serial Monitor
+// --------------------------------------------------
+
+void displaySensorReadings(
+  int lightReading,
+  int soundReading,
+  float temperature,
+  bool temperatureValid
+) {
+  Serial.println();
+  Serial.println("Environmental Sensor Readings");
+
+  Serial.print("Light level: ");
+  Serial.println(lightReading);
+
+  Serial.print("Sound level: ");
+  Serial.println(soundReading);
+
+  if (temperatureValid) {
+    Serial.print("Temperature: ");
+    Serial.print(temperature);
+    Serial.println(" C");
+  } else {
+    Serial.println("Temperature: Sensor reading error");
+  }
+}
+
+// --------------------------------------------------
+// Print environmental status and active alerts
+// --------------------------------------------------
+
+void displayEnvironmentalStatus(
+  bool lightAlert,
+  bool soundAlert,
+  bool temperatureAlert,
+  bool temperatureValid
+) {
+  bool anyAlert =
+    lightAlert || soundAlert || temperatureAlert || !temperatureValid;
+
+  Serial.println();
+  Serial.println("Room Environment Status:");
+
+  if (!anyAlert) {
+    Serial.println("Normal - No alerts detected.");
+    return;
+  }
+
+  Serial.println("Attention - Check the following:");
+
+  if (lightAlert) {
+    Serial.println("- Light level is high.");
+  }
+
+  if (soundAlert) {
+    Serial.println("- Noise level is high.");
+  }
+
+  if (temperatureAlert) {
+    Serial.println("- Temperature is high.");
+  }
+
+  if (!temperatureValid) {
+    Serial.println("- Temperature sensor reading is invalid.");
+  }
+}
+
+// --------------------------------------------------
+// Update LCD only when the displayed message changes
+// --------------------------------------------------
+
+void updateLCD(
+  bool lightAlert,
+  bool soundAlert,
+  bool temperatureAlert,
+  bool temperatureValid
+) {
+  String line1;
+  String line2;
+
+  bool anyAlert =
+    lightAlert || soundAlert || temperatureAlert || !temperatureValid;
+
+  if (!anyAlert) {
+    line1 = "Room: Normal";
+    line2 = "No alerts";
+    lcd.setRGB(0, 255, 0);
+  } else {
+    line1 = "Room: Attention";
+    lcd.setRGB(255, 120, 0);
+
+    // Display the highest-priority alert.
+    if (!temperatureValid) {
+      line2 = "Temp sensor error";
+    } else if (soundAlert) {
+      line2 = "Noise is high";
+    } else if (lightAlert) {
+      line2 = "Light is high";
+    } else if (temperatureAlert) {
+      line2 = "Temp is high";
     } else {
-      lcd.setRGB(0, 255, 0);
+      line2 = "Check environment";
     }
   }
 
-  if (firstDisplay || line1 != previousLine1 ||
-      line2 != previousLine2) {
-
+  // Only refresh the LCD when the message changes.
+  if (line1 != previousLine1 || line2 != previousLine2) {
     lcd.clear();
 
     lcd.setCursor(0, 0);
@@ -52,126 +269,25 @@ void updateLCD(String line1, String line2, bool alert) {
     previousLine1 = line1;
     previousLine2 = line2;
   }
-
-  previousAlert = alert;
-  firstDisplay = false;
 }
 
-void setup() {
-  Serial.begin(9600);
+// --------------------------------------------------
+// Print configured thresholds
+// --------------------------------------------------
 
-  lcd.begin(16, 2);
-  lcd.setRGB(0, 255, 0);
-
-  lcd.setCursor(0, 0);
-  lcd.print("Room Monitor");
-  lcd.setCursor(0, 1);
-  lcd.print("Starting...");
-  delay(2000);
-  lcd.clear();
-
-  Serial.println("Sensory Room Environment Monitor");
-  Serial.println("--------------------------------");
-}
-
-void loop() {
-  int lightValue = readAverage(LIGHT_SENSOR);
-  int soundValue = readAverage(SOUND_SENSOR);
-  int tempReading = readAverage(TEMP_SENSOR);
-
-  float temperature = -999;
-
-  if (tempReading > 0 && tempReading < 1023) {
-    float resistance =
-      10000.0 * (1023.0 / tempReading - 1.0);
-
-    temperature = 1.0 /
-      (log(resistance / 10000.0) / 3975.0
-      + 1.0 / 298.15) - 273.15;
-  }
-
-  bool tempError = temperature == -999;
-  bool tooDark = lightValue < lightThreshold;
-  bool tooNoisy = soundValue > soundThreshold;
-  bool tooHot = false;
-
-  if (!tempError) {
-    tooHot = temperature > temperatureThreshold;
-  }
-
-  bool alert = tempError || tooDark || tooNoisy || tooHot;
-
+void printThresholds() {
   Serial.println();
-  Serial.println("ENVIRONMENT READINGS");
-  Serial.println("--------------------------------");
+  Serial.println("Configured Alert Thresholds:");
 
-  Serial.print("Light Level: ");
-  Serial.println(lightValue);
+  Serial.print("Light threshold: ");
+  Serial.println(lightThreshold);
 
-  Serial.print("Sound Level: ");
-  Serial.println(soundValue);
+  Serial.print("Sound threshold: ");
+  Serial.println(soundThreshold);
 
-  Serial.print("Temperature: ");
-
-  if (tempError) {
-    Serial.println("Sensor Error");
-  } else {
-    Serial.print(temperature, 1);
-    Serial.println(" C");
-  }
-
-  Serial.println();
-  Serial.println("ENVIRONMENT ALERTS:");
-
-  bool alertFound = false;
-
-  if (tempError) {
-    Serial.println("- Temperature sensor error");
-    alertFound = true;
-  }
-
-  if (tooDark) {
-    Serial.println("- Low light detected");
-    alertFound = true;
-  }
-
-  if (tooNoisy) {
-    Serial.println("- High sound reading detected");
-    alertFound = true;
-  }
-
-  if (tooHot) {
-    Serial.println("- High temperature detected");
-    alertFound = true;
-  }
-
-  if (!alertFound) {
-    Serial.println("No alerts. Room looks OK.");
-  }
-
-  String line1 = "";
-  String line2 = "";
-
-  if (alert) {
-    line1 = "Check environment";
-
-    if (tempError) {
-      line2 = "Check temp sensor";
-    } else if (tooDark) {
-      line2 = "Room too dark";
-    } else if (tooNoisy) {
-      line2 = "Noise is high";
-    } else if (tooHot) {
-      line2 = "Room too hot";
-    }
-  } else {
-    line1 = "Room looks OK";
-    line2 = "Temp: " + String(temperature, 1) + " C";
-  }
-
-  updateLCD(line1, line2, alert);
+  Serial.print("Temperature threshold: ");
+  Serial.print(temperatureThreshold);
+  Serial.println(" C");
 
   Serial.println("--------------------------------");
-
-  delay(1000);
 }
