@@ -1,3 +1,4 @@
+
 #include <Wire.h>
 #include "rgb_lcd.h"
 #include <WiFiS3.h>
@@ -12,15 +13,34 @@ char ssid[] = SECRET_SSID;
 char pass[] = SECRET_PASSWORD;
 
 // ThingSpeak settings
-const char server[] = "api.thingspeak.com";
-const int port = 80;
+const char thingSpeakHost[] = "api.thingspeak.com";
+const int thingSpeakPort = 80;
 
-// Enter your NEW ThingSpeak Write API Key here
-const String writeAPIKey = "J2TLGHNYPDOTK75T";
+const char writeAPIKey[] =
+  SECRET_THINGSPEAK_WRITE_API_KEY;
 
-// HTTP client
-WiFiClient wifi;
-HttpClient client(wifi, server, port);
+WiFiClient thingSpeakWifi;
+
+HttpClient thingSpeakClient(
+  thingSpeakWifi,
+  thingSpeakHost,
+  thingSpeakPort
+);
+
+// Google Sheets settings
+const char googleHost[] = "script.google.com";
+const int googlePort = 443;
+
+const char googlePath[] =
+  "/macros/s/AKfycbwxGlZNQGISPRpwux2sY0BIKWO4m18ndTj-x6mMo00Zfh-4vw2rrGuiVuhMpZ6-eDxa/exec";
+
+WiFiSSLClient googleWifi;
+
+HttpClient googleClient(
+  googleWifi,
+  googleHost,
+  googlePort
+);
 
 // Grove sensors
 const int LIGHT_SENSOR = A0;
@@ -38,7 +58,8 @@ const unsigned long uploadInterval = 20000;
 
 // Connect to Wi-Fi
 void connectWiFi() {
-  Serial.print("Connecting to Wi-Fi");
+
+  Serial.print("Connecting to Wi-Fi...");
 
   WiFi.begin(ssid, pass);
 
@@ -46,6 +67,7 @@ void connectWiFi() {
 
   while (WiFi.status() != WL_CONNECTED &&
          millis() - startTime < 30000) {
+
     delay(500);
     Serial.print(".");
   }
@@ -53,16 +75,21 @@ void connectWiFi() {
   Serial.println();
 
   if (WiFi.status() == WL_CONNECTED) {
+
     Serial.println("Connected to Wi-Fi!");
+
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
+
   } else {
+
     Serial.println("Wi-Fi connection failed.");
   }
 }
 
 // Read Grove temperature sensor
 float readTemperatureC(int pin) {
+
   int sensorValue = analogRead(pin);
 
   if (sensorValue <= 0 || sensorValue >= 1023) {
@@ -83,20 +110,21 @@ float readTemperatureC(int pin) {
   return temperatureK - 273.15;
 }
 
-// Upload sensor data to ThingSpeak using POST
+// Upload sensor data to ThingSpeak
 void postToThingSpeak(
   int lightValue,
   int soundValue,
   float temperature,
   bool tempError
 ) {
+
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Wi-Fi disconnected. Upload skipped.");
+
+    Serial.println("ThingSpeak upload skipped: Wi-Fi disconnected.");
     return;
   }
 
-  // Create POST request body
-  String body = "api_key=" + writeAPIKey;
+  String body = "api_key=" + String(writeAPIKey);
 
   body += "&field1=" + String(lightValue);
   body += "&field2=" + String(soundValue);
@@ -108,59 +136,143 @@ void postToThingSpeak(
   Serial.println();
   Serial.println("Posting sensor data to ThingSpeak...");
 
-  // Send POST request
-  client.beginRequest();
-  client.post("/update");
+  thingSpeakClient.beginRequest();
+  thingSpeakClient.post("/update");
 
-  client.sendHeader(
+  thingSpeakClient.sendHeader(
     "Content-Type",
     "application/x-www-form-urlencoded"
   );
 
-  client.sendHeader(
+  thingSpeakClient.sendHeader(
     "Content-Length",
     body.length()
   );
 
-  client.beginBody();
-  client.print(body);
-  client.endRequest();
+  thingSpeakClient.beginBody();
+  thingSpeakClient.print(body);
+  thingSpeakClient.endRequest();
 
-  // Read server response
-  int statusCode = client.responseStatusCode();
+  int statusCode =
+    thingSpeakClient.responseStatusCode();
 
-  String response = client.responseBody();
+  String response =
+    thingSpeakClient.responseBody();
+
   response.trim();
 
-  Serial.print("HTTP Status Code: ");
+  Serial.print("ThingSpeak HTTP Status: ");
   Serial.println(statusCode);
 
   Serial.print("ThingSpeak Response: ");
   Serial.println(response);
 
   if (statusCode == 200 && response.toInt() > 0) {
-    Serial.println("UPLOAD SUCCESSFUL!");
+
+    Serial.println("ThingSpeak upload successful.");
+
     Serial.print("Entry ID: ");
     Serial.println(response);
+
   } else {
-    Serial.println("UPLOAD FAILED.");
-    Serial.println("Check your API key and channel settings.");
+
+    Serial.println("ThingSpeak upload failed.");
+    Serial.println("Check your API key and channel.");
   }
 
-  Serial.println("-----------------------------");
+  thingSpeakClient.stop();
+}
 
-  client.stop();
+// Upload sensor data to Google Sheets
+void postToGoogleSheets(
+  int lightValue,
+  int soundValue,
+  float temperature,
+  bool tempError
+) {
+
+  if (WiFi.status() != WL_CONNECTED) {
+
+    Serial.println("Google Sheets upload skipped: Wi-Fi disconnected.");
+    return;
+  }
+
+  String temperatureJson = tempError
+    ? "null"
+    : String(temperature, 1);
+
+  // Create JSON data
+  String body = "{";
+
+  body += "\"light\":" + String(lightValue) + ",";
+  body += "\"sound\":" + String(soundValue) + ",";
+  body += "\"temperature\":" + temperatureJson;
+
+  body += "}";
+
+  Serial.println();
+  Serial.println("Posting sensor data to Google Sheets...");
+
+  googleClient.beginRequest();
+  googleClient.post(googlePath);
+
+  googleClient.sendHeader(
+    "Content-Type",
+    "application/json"
+  );
+
+  googleClient.sendHeader(
+    "Content-Length",
+    body.length()
+  );
+
+  googleClient.beginBody();
+  googleClient.print(body);
+  googleClient.endRequest();
+
+  int statusCode =
+    googleClient.responseStatusCode();
+
+  String response =
+    googleClient.responseBody();
+
+  response.trim();
+
+  Serial.print("Google Sheets HTTP Status: ");
+  Serial.println(statusCode);
+
+  Serial.print("Google response: ");
+  Serial.println(response);
+
+  if (statusCode == 200) {
+
+    Serial.println("Google Sheets returned HTTP 200.");
+    Serial.println("Check spreadsheet for the new row.");
+
+  } else if (statusCode == 302 || statusCode == 303) {
+
+    Serial.println("Google Apps Script redirected its response.");
+    Serial.println("Check spreadsheet for the new row.");
+
+  } else {
+
+    Serial.println("Google Sheets request may have failed.");
+    Serial.println("Check Web App URL and deployment settings.");
+  }
+
+  googleClient.stop();
 }
 
 // Setup
 void setup() {
+
   Serial.begin(9600);
   delay(2000);
 
   analogReadResolution(10);
 
   Serial.println("Sensory Environment Monitor");
-  Serial.println("ThingSpeak POST Connection");
+  Serial.println("ThingSpeak + Google Sheets");
 
   // Start LCD
   lcd.begin(16, 2);
@@ -181,42 +293,58 @@ void setup() {
   lcd.setCursor(0, 0);
 
   if (WiFi.status() == WL_CONNECTED) {
+
     lcd.print("Wi-Fi connected");
+
     lcd.setCursor(0, 1);
     lcd.print("Cloud ready");
+
   } else {
+
     lcd.print("Wi-Fi failed");
   }
 
   delay(2000);
   lcd.clear();
+
+  lastUploadTime = millis();
 }
 
 // Main loop
 void loop() {
 
+  // Reconnect Wi-Fi if disconnected
+  if (WiFi.status() != WL_CONNECTED) {
+
+    Serial.println("Wi-Fi disconnected. Reconnecting...");
+
+    connectWiFi();
+  }
+
   // Read sensors
   int lightValue = analogRead(LIGHT_SENSOR);
+
   int soundValue = analogRead(SOUND_SENSOR);
 
-  float temperature = readTemperatureC(TEMP_SENSOR);
+  float temperature =
+    readTemperatureC(TEMP_SENSOR);
 
   bool tempError = isnan(temperature);
 
   // Check environment
-  bool tooDark = lightValue < lightThreshold;
-  bool tooNoisy = soundValue > soundThreshold;
+  bool tooDark =
+    lightValue < lightThreshold;
 
-  bool tooHot = false;
+  bool tooNoisy =
+    soundValue > soundThreshold;
 
-  if (!tempError) {
-    tooHot = temperature > temperatureThreshold;
-  }
+  bool tooHot =
+    (!tempError && temperature > temperatureThreshold);
 
   bool alert =
     tempError || tooDark || tooNoisy || tooHot;
 
-  // Print readings to Serial Monitor
+  // Print sensor readings
   Serial.print("Light: ");
   Serial.print(lightValue);
 
@@ -226,8 +354,11 @@ void loop() {
   Serial.print(" | Temperature: ");
 
   if (tempError) {
+
     Serial.print("Sensor error");
+
   } else {
+
     Serial.print(temperature, 1);
     Serial.print(" C");
   }
@@ -243,7 +374,16 @@ void loop() {
 
     lastUploadTime = millis();
 
+    // Upload to ThingSpeak
     postToThingSpeak(
+      lightValue,
+      soundValue,
+      temperature,
+      tempError
+    );
+
+    // Upload to Google Sheets
+    postToGoogleSheets(
       lightValue,
       soundValue,
       temperature,
@@ -264,15 +404,19 @@ void loop() {
     lcd.setCursor(0, 1);
 
     if (tempError) {
+
       lcd.print("Check temp sensor");
-    }
-    else if (tooDark) {
+
+    } else if (tooDark) {
+
       lcd.print("Room too dark");
-    }
-    else if (tooNoisy) {
+
+    } else if (tooNoisy) {
+
       lcd.print("Noise is high");
-    }
-    else if (tooHot) {
+
+    } else if (tooHot) {
+
       lcd.print("Room too hot");
     }
 
@@ -285,7 +429,9 @@ void loop() {
 
     lcd.setCursor(0, 1);
     lcd.print("Temp: ");
+
     lcd.print(temperature, 1);
+
     lcd.print((char)223);
     lcd.print("C");
   }
